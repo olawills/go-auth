@@ -4,20 +4,19 @@ import (
 	"auth_api_with_Go/controllers"
 	database "auth_api_with_Go/db"
 	"auth_api_with_Go/middlewares"
+	"auth_api_with_Go/model"
 	"log"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
 )
-// migrate -path . -database "postgresql://postgres@localhost:5432/auth_db?sslmode=disable" up 
+
 func main() {
-	// Initialize Database
-	// Load configuration
+
 	viper.SetConfigFile("config.json")
 	if err := viper.ReadInConfig(); err != nil {
 		log.Fatalf("Failed to read config: %v", err)
 	}
-
 	// Set up database
 	dbConfig := database.Config{
 		Host:     viper.GetString("db.host"),
@@ -25,35 +24,31 @@ func main() {
 		User:     viper.GetString("db.user"),
 		Password: viper.GetString("db.password"),
 		DBName:   viper.GetString("db.name"),
-		SSLMode:  viper.GetString("db.sslmode"),
 	}
 
-	db, err := database.NewConnection(dbConfig)
-	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
-	}
-	defer db.Close()
+	database.NewConnection(dbConfig)
+	database.Migrate()
 
 	// Initialize Router
 	router := initRouter()
-	// Start server
-	port := viper.GetString("server.port")
-	if port == "" {
-		port = "8080"
-	}
+	router.Run(":8080")
 
-	log.Printf("Server starting on port %s...", port)
-	if err := router.Run(":" + port); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
-	}
 }
 
 func initRouter() *gin.Engine {
 	router := gin.Default()
-	api := router.Group("/api/auth")
+	api := router.Group("/api/v1")
 	{
 		api.POST("/token", controllers.GenerateToken)
-		api.POST("/user/register", controllers.RegisterUser)
+		api.POST("/auth/register", controllers.RegisterUser)
+		api.POST("/auth/login", func(c *gin.Context) {
+			var login model.Login
+			if err := c.ShouldBindJSON(&login); err != nil {
+				c.JSON(400, gin.H{"error": err.Error()})
+				return
+			}
+			controllers.LoginUser(&login, c)
+		})
 		secured := api.Group("/secured").Use(middlewares.Auth())
 		{
 			secured.GET("/ping", controllers.Ping)
